@@ -35,3 +35,7 @@ Spark/Databricks usage is the following:
           .start()
           .awaitTermination()
 ```
+
+See also:
+- aka.ms/schemaregistry
+- https://github.com/Azure/azure-schema-registry-for-kafka
