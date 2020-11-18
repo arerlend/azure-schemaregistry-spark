@@ -1,6 +1,16 @@
 # azure-schemaregistry-spark (WIP)
 
-This repository contains packages that will provide Spark support in Scala for serialization and deserialization of registry-backed payloads.  Code is work in progress.
+## Overview
+
+Schema Registry support in Java is provided by the official Schema Registry SDK in the Azure Java SDK repository.
+
+Schema Registry serializer craft payloads that contain a schema ID and an encoded payload.  The ID references a registry-stored schema that can be used to decode the user-specified payload.
+
+However, consuming Schema Registry-backed payloads in Spark is particularly difficult, since - 
+- Spark Kafka does not support plug-in with KafkaSerializer and KafkaDeserializer objects, and
+- Object management is non-trivial given Spark's driver-executor model.
+
+For these reasons, Spark functions are required to simplify SR UX in Spark.  This repository contains packages that will provide Spark support in Scala for serialization and deserialization of registry-backed payloads.  Code is work in progress.
 
 Currently, only Avro encodings are supported by Azure Schema Registry clients.  `from_avro` and `to_avro` found in the `functions.scala` files will be usable for converting Spark SQL columns from registry-backed payloads to columns of the correct Spark SQL datatype (e.g. `StringType`, `StructType`, etc.).
 
@@ -28,7 +38,7 @@ Spark/Databricks usage is the following:
           .option("kafka.group.id", "kafka-group")
           .load()
 
-     df.select(com.microsoft.azure.functions.from_avro($"value", props))  // path will be changed in the future
+     df.select(from_avro($"value", "[schema guid]", props))  // path will be changed in the future
           .writeStream
           .outputMode("append")
           .format("console")
