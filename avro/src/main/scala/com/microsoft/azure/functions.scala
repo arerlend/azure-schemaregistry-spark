@@ -12,10 +12,10 @@ object functions {
 
   def from_avro(
        data: Column,
+       schemaId: String, // guid
        options: java.util.Map[java.lang.String, java.lang.String]): Column = {
-    new Column(AvroDataToCatalyst(data.expr, options.asScala.toMap))
+    new Column(AvroDataToCatalyst(data.expr, schemaId, options.asScala.toMap))
   }
-
 
   def to_avro(data: Column, props : Map[String, AnyRef]): Column = {
     data

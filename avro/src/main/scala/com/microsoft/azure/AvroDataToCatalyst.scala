@@ -4,49 +4,55 @@ import java.io.ByteArrayInputStream
 
 import com.azure.core.util.serializer.TypeReference
 import com.azure.data.schemaregistry.SchemaRegistryClientBuilder
-import com.azure.data.schemaregistry.avro.SchemaRegistryAvroSerializerBuilder
+import com.azure.data.schemaregistry.avro.{SchemaRegistryAvroSerializer, SchemaRegistryAvroSerializerBuilder}
 import com.azure.identity.ClientSecretCredentialBuilder
+import org.apache.avro.Schema
 
-import scala.util.control.NonFatal
 import org.apache.avro.generic.GenericRecord
-import org.apache.spark.SparkException
 import org.apache.spark.sql.catalyst.expressions.{ExpectsInputTypes, Expression, SpecificInternalRow, UnaryExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.util.{FailFastMode, ParseMode, PermissiveMode}
 import org.apache.spark.sql.types._
-import org.apache.spark.unsafe.types.UTF8String
 
 case class AvroDataToCatalyst(
      child: Expression,
+     schemaId: String,
      options: Map[java.lang.String, java.lang.String])
   extends UnaryExpression with ExpectsInputTypes {
 
   override def inputTypes: Seq[BinaryType] = Seq(BinaryType)
 
-  override lazy val dataType: DataType = StringType
+  @transient override lazy val dataType: DataType = {
+    SchemaConverters.toSqlType(expectedSchema).dataType;
+    // todo: compare stream compat to group compat and verify equal
+  }
 
   override def nullable: Boolean = true
 
-  @transient private lazy val deserializer = new SchemaRegistryAvroSerializerBuilder()
-      .schemaRegistryAsyncClient(new SchemaRegistryClientBuilder()
-        .endpoint(options.getOrElse("schema.registry.url", null))
-        .credential(new ClientSecretCredentialBuilder()
-          .tenantId(options.getOrElse("schema.registry.tenant.id", null))
-          .clientId(options.getOrElse("schema.registry.client.id", null))
-          .clientSecret(options.getOrElse("schema.registry.client.secret", null))
-          .build())
-        .buildAsyncClient())
+  @transient private val expectedSchema: Schema =
+    new Schema.Parser().parse(new String(schemaRegistryAsyncClient.getSchema(schemaId).block().getSchema))
+
+  @transient private lazy val schemaRegistryCredential = new ClientSecretCredentialBuilder()
+    .tenantId(options.getOrElse("schema.registry.tenant.id", null))
+    .clientId(options.getOrElse("schema.registry.client.id", null))
+    .clientSecret(options.getOrElse("schema.registry.client.secret", null))
+    .build()
+
+  @transient private lazy val schemaRegistryAsyncClient = new SchemaRegistryClientBuilder()
+    .endpoint(options.getOrElse("schema.registry.url", null))
+    .credential(schemaRegistryCredential)
+    .buildAsyncClient()
+
+  @transient private lazy val deserializer =  new SchemaRegistryAvroSerializerBuilder()
+      .schemaRegistryAsyncClient(schemaRegistryAsyncClient)
       .schemaGroup(options.getOrElse("schema.group", null))
       .autoRegisterSchema(options.getOrElse("specific.avro.reader", false).asInstanceOf[Boolean])
       .buildSerializer()
 
-  @transient private lazy val parseMode: ParseMode = {
-    FailFastMode
-  }
+  @transient private lazy val avroConverter = new AvroDeserializer(expectedSchema, dataType)
 
-  private def unacceptableModeMessage(name: String): String = {
-    s"from_avro() doesn't support the $name mode. " +
-      s"Acceptable modes are ${PermissiveMode.name} and ${FailFastMode.name}."
+  @transient private lazy val parseMode: ParseMode = {
+    FailFastMode // permissive mode
   }
 
   @transient private lazy val nullResultRow: Any = dataType match {
@@ -63,8 +69,9 @@ case class AvroDataToCatalyst(
 
   override def nullSafeEval(input: Any): Any = {
     val binary = new ByteArrayInputStream(input.asInstanceOf[Array[Byte]])
-    val s = deserializer.deserialize(binary, TypeReference.createInstance(classOf[GenericRecord])).toString()
-    UTF8String.fromString(s)
+    // compare schema version and datatype version
+    var genericRecord = deserializer.deserialize(binary, TypeReference.createInstance(classOf[GenericRecord]))
+    avroConverter.deserialize(genericRecord)
   }
 
   override def prettyName: String = "from_avro"
