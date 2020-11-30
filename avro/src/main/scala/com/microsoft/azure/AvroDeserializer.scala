@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.microsoft.azure
+package com.microsoft.azure.schemaregistry.spark
 
 import java.math.BigDecimal
 import java.nio.ByteBuffer
@@ -68,9 +68,9 @@ private class AvroDeserializer(
     case st: StructType =>
       val resultRow = new SpecificInternalRow(st.map(_.dataType))
       val fieldUpdater = new RowUpdater(resultRow)
-      val writer = getRecordWriter(rootAvroType, st, Nil)
       (data: Any) => {
         val record = data.asInstanceOf[GenericRecord]
+        val writer = getRecordWriter(rootAvroType, st, Nil, record)
         val skipRow = writer(fieldUpdater, record)
         if (skipRow) None else Some(resultRow)
       }
@@ -85,7 +85,9 @@ private class AvroDeserializer(
       }
   }
 
-  def deserialize(data: Any): Option[Any] = converter(data)
+  def deserialize(data: Any): Option[Any] = {
+    converter(data)
+  }
 
   /**
    * Creates a writer to write avro values to Catalyst values at the given ordinal with the given
@@ -316,17 +318,20 @@ private class AvroDeserializer(
   private def getRecordWriter(
                                avroType: Schema,
                                sqlType: StructType,
-                               path: List[String]): (CatalystDataUpdater, GenericRecord) => Boolean = {
+                               path: List[String],
+                               data: GenericRecord = null): (CatalystDataUpdater, GenericRecord) => Boolean = {
     val validFieldIndexes = ArrayBuffer.empty[Int]
     val fieldWriters = ArrayBuffer.empty[(CatalystDataUpdater, Any) => Unit]
 
     val length = sqlType.length
     var i = 0
+    var avroFieldCount = 0
     while (i < length) {
       val sqlField = sqlType.fields(i)
       val avroField = avroType.getField(sqlField.name)
       if (avroField != null) {
         validFieldIndexes += avroField.pos()
+        avroFieldCount += 1
 
         val baseWriter = newWriter(avroField.schema(), sqlField.dataType, path :+ sqlField.name)
         val ordinal = i
@@ -347,6 +352,10 @@ private class AvroDeserializer(
            """.stripMargin)
       }
       i += 1
+    }
+
+    if (data != null && avroFieldCount < data.getSchema.getFields.size()) {
+      throw new IncompatibleSchemaException(s"Not all data fields in incoming schema are being captured by current schema.  Incoming schema: ${data.getSchema}")
     }
 
     (fieldUpdater, record) => {

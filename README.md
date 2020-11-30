@@ -16,6 +16,13 @@ Currently, only Avro encodings are supported by Azure Schema Registry clients.  
 
 ## Usage
 
+Compile the JAR and build with dependencies using the following Maven commmand:
+```bash
+mvn clean compile assembly:single
+```
+
+The JAR can then be uploaded without additional required dependencies in your Databricks environment.  If using `spark-submit`, use the `--jars` option to submit the path of the custom JAR.
+
 Spark/Databricks usage is the following:
 
 ```scala
@@ -51,7 +58,6 @@ Spark/Databricks usage is the following:
           .start()
           .awaitTermination()
 ```
-
 
 ## Schema Evolution
 

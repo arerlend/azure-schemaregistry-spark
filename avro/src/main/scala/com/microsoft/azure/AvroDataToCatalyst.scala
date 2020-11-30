@@ -1,4 +1,4 @@
-package com.microsoft.azure
+package com.microsoft.azure.schemaregistry.spark
 
 import java.io.ByteArrayInputStream
 
@@ -7,30 +7,35 @@ import com.azure.data.schemaregistry.SchemaRegistryClientBuilder
 import com.azure.data.schemaregistry.avro.{SchemaRegistryAvroSerializer, SchemaRegistryAvroSerializerBuilder}
 import com.azure.identity.ClientSecretCredentialBuilder
 import org.apache.avro.Schema
-
 import org.apache.avro.generic.GenericRecord
+import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.expressions.{ExpectsInputTypes, Expression, SpecificInternalRow, UnaryExpression}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode}
 import org.apache.spark.sql.catalyst.util.{FailFastMode, ParseMode, PermissiveMode}
 import org.apache.spark.sql.types._
 
+import scala.util.control.NonFatal
+
 case class AvroDataToCatalyst(
      child: Expression,
      schemaId: String,
-     options: Map[java.lang.String, java.lang.String])
+     options: Map[java.lang.String, java.lang.String],
+     requireExactSchemaMatch: Boolean)
   extends UnaryExpression with ExpectsInputTypes {
 
   override def inputTypes: Seq[BinaryType] = Seq(BinaryType)
 
-  @transient override lazy val dataType: DataType = {
-    SchemaConverters.toSqlType(expectedSchema).dataType;
+  override lazy val dataType: DataType = {
+    val dt = SchemaConverters.toSqlType(new Schema.Parser().parse(expectedSchemaString)).dataType;
+    dt
     // todo: compare stream compat to group compat and verify equal
   }
 
   override def nullable: Boolean = true
 
-  @transient private val expectedSchema: Schema =
-    new Schema.Parser().parse(new String(schemaRegistryAsyncClient.getSchema(schemaId).block().getSchema))
+  private val expectedSchemaString : String = {
+    new String(schemaRegistryAsyncClient.getSchema(schemaId).block().getSchema)
+  }
 
   @transient private lazy val schemaRegistryCredential = new ClientSecretCredentialBuilder()
     .tenantId(options.getOrElse("schema.registry.tenant.id", null))
@@ -49,7 +54,11 @@ case class AvroDataToCatalyst(
       .autoRegisterSchema(options.getOrElse("specific.avro.reader", false).asInstanceOf[Boolean])
       .buildSerializer()
 
-  @transient private lazy val avroConverter = new AvroDeserializer(expectedSchema, dataType)
+  @transient private lazy val avroConverter = {
+    new AvroDeserializer(new Schema.Parser().parse(expectedSchemaString), dataType)
+  }
+
+  @transient private lazy val expectedSchema = new Schema.Parser().parse(expectedSchemaString)
 
   @transient private lazy val parseMode: ParseMode = {
     FailFastMode // permissive mode
@@ -68,10 +77,29 @@ case class AvroDataToCatalyst(
   }
 
   override def nullSafeEval(input: Any): Any = {
-    val binary = new ByteArrayInputStream(input.asInstanceOf[Array[Byte]])
-    // compare schema version and datatype version
-    var genericRecord = deserializer.deserialize(binary, TypeReference.createInstance(classOf[GenericRecord]))
-    avroConverter.deserialize(genericRecord)
+    try {
+      val binary = new ByteArrayInputStream(input.asInstanceOf[Array[Byte]])
+      // compare schema version and datatype version
+      val genericRecord = deserializer.deserialize(binary, TypeReference.createInstance(classOf[GenericRecord]))
+
+      if (requireExactSchemaMatch) {
+        if (!expectedSchema.equals(genericRecord.getSchema)) {
+          throw new IncompatibleSchemaException(s"Schema not exact match, payload schema did not match expected schema.  Payload schema: ${genericRecord.getSchema}")
+        }
+      }
+
+      avroConverter.deserialize(genericRecord).get
+    } catch {
+      case NonFatal(e) => parseMode match {
+        case PermissiveMode => nullResultRow
+        case FailFastMode =>
+          throw new Exception("Malformed records are detected in record parsing. " +
+            s"Current parse Mode: ${FailFastMode.name}. To process malformed records as null " +
+            "result, try setting the option 'mode' as 'PERMISSIVE'.", e)
+        case _ =>
+          throw new Exception(s"Unknown parse mode: ${parseMode.name}")
+      }
+    }
   }
 
   override def prettyName: String = "from_avro"
