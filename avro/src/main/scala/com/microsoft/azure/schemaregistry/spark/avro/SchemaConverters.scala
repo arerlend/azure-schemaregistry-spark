@@ -3,7 +3,7 @@ from Spark
 https://github.com/apache/spark/blob/master/external/avro/src/main/scala/org/apache/spark/sql/avro/SchemaConverters.scala
 */
 
-package com.microsoft.azure.schemaregistry.spark
+package com.microsoft.azure.schemaregistry.spark.avro
 
 import scala.collection.JavaConverters._
 import scala.util.Random

@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package com.microsoft.azure.schemaregistry.spark
+package com.microsoft.azure.schemaregistry.spark.avro
 
 import java.math.BigDecimal
 import java.nio.ByteBuffer

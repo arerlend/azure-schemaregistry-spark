@@ -1,4 +1,4 @@
-package com.microsoft.azure.schemaregistry.spark
+package com.microsoft.azure.schemaregistry.spark.avro
 
 import java.io.ByteArrayInputStream
 
