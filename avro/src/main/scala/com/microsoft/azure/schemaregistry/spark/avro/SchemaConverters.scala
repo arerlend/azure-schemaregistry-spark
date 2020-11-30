@@ -3,7 +3,7 @@ from Spark
 https://github.com/apache/spark/blob/master/external/avro/src/main/scala/org/apache/spark/sql/avro/SchemaConverters.scala
 */
 
-package com.microsoft.azure
+package com.microsoft.azure.schemaregistry.spark.avro
 
 import scala.collection.JavaConverters._
 import scala.util.Random
@@ -120,7 +120,7 @@ object SchemaConverters {
                 // All fields are nullable because only one of them is set at a time
                 StructField(s"member$i", schemaType.dataType, nullable = true)
             }
-
+            Console.println(StructType(fields.toSeq))
             SchemaType(StructType(fields.toSeq), nullable = false)
         }
 
