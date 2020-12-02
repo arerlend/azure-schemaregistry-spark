@@ -86,3 +86,24 @@ Customers will be able to configure the stream with specific failure models, but
 See also:
 - aka.ms/schemaregistry
 - https://github.com/Azure/azure-schema-registry-for-kafka
+
+## Reading Schema Registry payloads from Event Hubs Capture with Spark
+
+The `from_avro` function can be used to read Schema Registry payloads from Event Hubs Capture files as well.  Just decode using Spark's built-in Avro reader, then call `from_avro` on the body column.
+
+```scala
+import java.util.HashMap;
+import com.microsoft.azure.schemaregistry.spark.functions._;
+
+val props: HashMap[String, String] = new HashMap()
+props.put("schema.registry.url", SCHEMA_REGISTRY_URL)
+props.put("schema.registry.tenant.id", SCHEMA_REGISTRY_TENANT_ID)
+props.put("schema.registry.client.id", SCHEMA_REGISTRY_CLIENT_ID)
+props.put("schema.registry.client.secret", SCHEMA_REGISTRY_CLIENT_SECRET)
+
+val captureDataframe = spark.read.format("avro").load("dbfs:/path/to/capturefile.avro")
+
+val deserialized = captureDataframe.select(from_avro($"Body", "[schema guid represented in capture file]", props, false)) 
+deserialized.cache()
+deserialized.show()
+```
