@@ -1,5 +1,7 @@
 # azure-schemaregistry-spark (WIP)
 
+This repo is not being maintained.  Please see https://github.com/Azure/azure-event-hubs-spark (as of 6/25/21, check pull requests for adding SR support).
+
 ## Overview
 
 Schema Registry support in Java is provided by the official Schema Registry SDK in the Azure Java SDK repository.
